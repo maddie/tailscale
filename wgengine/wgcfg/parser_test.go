@@ -5,9 +5,14 @@
 package wgcfg
 
 import (
+	"bufio"
+	"bytes"
 	"reflect"
 	"runtime"
 	"testing"
+
+	"inet.af/netaddr"
+	"tailscale.com/types/wgkey"
 )
 
 func noError(t *testing.T, err error) bool {
@@ -51,5 +56,52 @@ func TestParseEndpoint(t *testing.T) {
 	_, _, err = parseEndpoint("[::::::invalid:18981")
 	if err == nil {
 		t.Error("Error was expected")
+	}
+}
+
+func BenchmarkFromUAPI(b *testing.B) {
+	newPrivateKey := func() (wgkey.Key, wgkey.Private) {
+		b.Helper()
+		pk, err := wgkey.NewPrivate()
+		if err != nil {
+			b.Fatal(err)
+		}
+		return wgkey.Key(pk.Public()), wgkey.Private(pk)
+	}
+	k1, pk1 := newPrivateKey()
+	ip1 := netaddr.MustParseIPPrefix("10.0.0.1/32")
+
+	cfg1 := &Config{
+		PrivateKey: wgkey.Private(pk1),
+		Peers: []Peer{{
+			PublicKey:  k1,
+			AllowedIPs: []netaddr.IPPrefix{ip1},
+		}, {
+			PublicKey:  k1,
+			AllowedIPs: []netaddr.IPPrefix{ip1},
+		}, {
+			PublicKey:  k1,
+			AllowedIPs: []netaddr.IPPrefix{ip1},
+		}, {
+			PublicKey:  k1,
+			AllowedIPs: []netaddr.IPPrefix{ip1},
+		}},
+	}
+
+	buf := new(bytes.Buffer)
+	w := bufio.NewWriter(buf)
+	if err := cfg1.ToUAPI(w, &Config{}); err != nil {
+		b.Fatal(err)
+	}
+	w.Flush()
+	if buf.Len() == 0 {
+		b.Fatal("Got empty bytes.Buffer")
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := FromUAPI(buf)
+		if err != nil {
+			b.Errorf("failed from UAPI: %v", err)
+		}
 	}
 }
